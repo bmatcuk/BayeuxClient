@@ -9,9 +9,6 @@
 #import <Foundation/Foundation.h>
 #import "SRWebSocket.h"
 
-/// Handler for messages on subscribed channels.
-typedef void(^BayeuxClientMessageHandler)(NSDictionary *message);
-
 
 #pragma mark - BayeuxClientExtension
 
@@ -41,6 +38,15 @@ typedef void(^BayeuxClientMessageHandler)(NSDictionary *message);
 #pragma mark - BayeuxClientDelegate
 
 @protocol BayeuxClientDelegate <NSObject>
+
+/**
+ * The client received a message.
+ * @param client The BayeuxClient
+ * @param message The message received
+ * @param channel The channel that the message was received on.
+ */
+- (void)bayeuxClient:(BayeuxClient *)client receivedMessage:(NSDictionary *)message fromChannel:(NSString *)channel;
+
 @optional
 
 /**
@@ -55,14 +61,6 @@ typedef void(^BayeuxClientMessageHandler)(NSDictionary *message);
  * @param channel The channel that the client successfully subscribed to.
  */
 - (void)bayeuxClient:(BayeuxClient *)client subscribedToChannel:(NSString *)channel;
-
-/**
- * The client received a message.
- * @param client The BayeuxClient
- * @param message The message received
- * @param channel The channel that the message was received on.
- */
-- (void)bayeuxClient:(BayeuxClient *)client receivedMessage:(NSDictionary *)message fromChannel:(NSString *)channel;
 
 /**
  * The client successfully unsubscribed from a channel.
@@ -150,10 +148,10 @@ typedef void(^BayeuxClientMessageHandler)(NSDictionary *message);
 - (void)subscribeToChannel:(NSString *)channel;
 
 /**
- * Subscribe to a channel and assign a handler for messages received on this channel.
- * @param handler A block to process messages received on this channel.
+ * Unsubscribe from a channel.
+ * @param channel The channel to unsubscribe from.
  */
-- (void)subscribeToChannel:(NSString *)channel withBlock:(BayeuxClientMessageHandler)handler;
+- (void)unsubscribeFromChannel:(NSString *)channel;
 
 /**
  * Add an extension
@@ -166,5 +164,10 @@ typedef void(^BayeuxClientMessageHandler)(NSDictionary *message);
  * @param extension An extension object that was previously added to the client.
  */
 - (void)removeExtension:(NSObject <BayeuxClientExtension> *)extension;
+
+/**
+ * Disconnect from the Bayeux server
+ */
+- (void)disconnect;
 
 @end

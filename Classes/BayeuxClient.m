@@ -15,6 +15,12 @@
 #error BayeuxClient must be compiled with ARC enabled.
 #endif
 
+#ifdef DEBUG
+    #define LOG(...) NSLog(__VA_ARGS__)
+#else
+    #define LOG(...)
+#endif
+
 
 @interface BayeuxClient ()
 
@@ -27,6 +33,9 @@
 - (void)sendBayeuxHandshake;
 - (void)sendBayeuxConnect;
 - (void)sendBayeuxSubscribeToChannel:(NSString *)channel;
+- (void)sendBayeuxUnsubscribeFromChannel:(NSString *)channel;
+- (void)sendBayeuxDisconnect;
+
 - (NSError *)buildErrorFromBayeuxMessage:(NSDictionary *)message withDescription:(NSString *)description;
 - (void)handleBayeuxError:(NSDictionary *)message withDescription:(NSString *)description;
 
@@ -71,31 +80,34 @@
 
 - (void)subscribeToChannel:(NSString *)channel
 {
-    [self subscribeToChannel:channel withBlock:nil];
-}
-
-- (void)subscribeToChannel:(NSString *)channel withBlock:(BayeuxClientMessageHandler)handler
-{
     if (!channel) return;
     
     BOOL needToSubscribe = YES;
-    // Each subscription is an array of BayeuxClientMessageHandlers.
-    // The very first element of the array is a count of the number of null handlers.
-    NSMutableArray *array = _subscriptions[channel];
-    if (array) {
+    NSNumber *numberOfSubscriptions = _subscriptions[channel];
+    if (numberOfSubscriptions) {
         needToSubscribe = NO;
+        numberOfSubscriptions = @(numberOfSubscriptions.intValue + 1);
     } else {
-        array = [NSMutableArray array];
-        [array addObject:@0];
-        _subscriptions[channel] = array;
+        numberOfSubscriptions = @1;
     }
-    if (handler)
-        [array addObject:handler];
-    else
-        array[0] = @([array[0] integerValue] + 1);
+    _subscriptions[channel] = numberOfSubscriptions;
     
     if (self.isConnected && needToSubscribe)
         [self sendBayeuxSubscribeToChannel:channel];
+}
+
+- (void)unsubscribeFromChannel:(NSString *)channel
+{
+    if (!channel) return;
+    
+    NSNumber *numberOfSubscriptions = _subscriptions[channel];
+    if (numberOfSubscriptions) {
+        numberOfSubscriptions = @(numberOfSubscriptions.intValue - 1);
+        if (numberOfSubscriptions.intValue <= 0 && self.isConnected) {
+            [_subscriptions removeObjectForKey:channel];
+            [self sendBayeuxUnsubscribeFromChannel:channel];
+        }
+    }
 }
 
 - (void)addExtension:(NSObject<BayeuxClientExtension> *)extension
@@ -108,6 +120,12 @@
     [self.extensions removeObject:extension];
 }
 
+- (void)disconnect
+{
+    if (self.isConnected)
+        [self sendBayeuxDisconnect];
+}
+
 
 #pragma mark - Bayeux Protocol
 
@@ -117,6 +135,7 @@
                               @"version":                  @"1.0",
                               @"minimumVersion":           @"1.0beta",
                               @"supportedConnectionTypes": @[@"websocket"]};
+    LOG(@"Sending Bayeux Handshake...");
     [self writeMessageToWebSocket:message];
 }
 
@@ -125,14 +144,33 @@
     NSDictionary *message = @{@"channel":        @"/meta/connect",
                               @"clientId":       self.clientId,
                               @"connectionType": @"websocket"};
+    LOG(@"Sending Bayeux Connect...");
     [self writeMessageToWebSocket:message];
 }
 
 - (void)sendBayeuxSubscribeToChannel:(NSString *)channel
 {
-    NSDictionary *message = [@{@"channel":      @"/meta/subscribe",
-                               @"clientId":     self.clientId,
-                               @"subscription": channel} mutableCopy];
+    NSDictionary *message = @{@"channel":      @"/meta/subscribe",
+                              @"clientId":     self.clientId,
+                              @"subscription": channel};
+    LOG(@"Sending Bayeux Subscribe...");
+    [self writeMessageToWebSocket:message];
+}
+
+- (void)sendBayeuxUnsubscribeFromChannel:(NSString *)channel
+{
+    NSDictionary *message = @{@"channel":      @"/meta/unsubscribe",
+                              @"clientId":     self.clientId,
+                              @"subscription": channel};
+    LOG(@"Sending Bayeux Unsubscribe...");
+    [self writeMessageToWebSocket:message];
+}
+
+- (void)sendBayeuxDisconnect
+{
+    NSDictionary *message = @{@"channel":  @"/meta/disconnect",
+                              @"clientId": self.clientId};
+    LOG(@"Sending Bayeux Disconnect...");
     [self writeMessageToWebSocket:message];
 }
 
@@ -254,6 +292,7 @@
                 if ([channel isEqualToString:@"/meta/handshake"]) {
                     
                     // received a handshake response
+                    LOG(@"Received Bayeux Handshake Response");
                     if ([message[@"successful"] boolValue]) {
                         self.clientId = message[@"clientId"];
                         _connected = YES;
@@ -269,6 +308,7 @@
                 } else if ([channel isEqualToString:@"/meta/connect"]) {
                     
                     // received a connect response
+                    LOG(@"Received Bayeux Connect Response");
                     if ([message[@"successful"] boolValue]) {
                         // The client must maintain an outstanding connect request
                         _connected = YES;
@@ -280,6 +320,7 @@
                 } else if ([channel isEqualToString:@"/meta/disconnect"]) {
                     
                     // received a disconnect response
+                    LOG(@"Received Bayeux Disconnect Response");
                     if ([message[@"successful"] boolValue]) {
                         [self disconnectWebSocket];
                         _connected = NO;
@@ -293,6 +334,7 @@
                 } else if ([channel isEqualToString:@"/meta/subscribe"]) {
                     
                     // received a subscribe response
+                    LOG(@"Received Bayeux Subscribe Response");
                     if ([message[@"successful"] boolValue]) {
                         if ([self.delegate respondsToSelector:@selector(bayeuxClient:subscribedToChannel:)])
                             [self.delegate bayeuxClient:self subscribedToChannel:channel];
@@ -304,6 +346,7 @@
                 } else if ([channel isEqualToString:@"/meta/unsubscribe"]) {
                     
                     // received an unsubscribe response
+                    LOG(@"Received Bayeux Unsubscribe Response");
                     if ([message[@"successful"] boolValue]) {
                         if ([self.delegate respondsToSelector:@selector(bayeuxClient:unsubscribedFromChannel:)])
                             [self.delegate bayeuxClient:self unsubscribedFromChannel:channel];
@@ -314,7 +357,11 @@
                 }
                 
             } else {
+                
                 // non-meta message, ie, something the user subscribed to
+                LOG(@"Received message from Bayeux");
+                [self.delegate bayeuxClient:self receivedMessage:message fromChannel:channel];
+                
             }
             
         }
