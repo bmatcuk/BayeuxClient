@@ -55,6 +55,7 @@ Import the `BayeuxClient.h` header file into your project and implement the `Bay
 }
 
 #pragma mark - Required BayeuxClientDelegate methods
+
 - (void)bayeuxClient:(BayeuxClient *)client receivedMessage:(NSDictionary *)message fromChannel:(NSString *)channel
 {
   NSLog(@"A message was received - this is the only method you MUST implement from the BayeuxClientDelegate protocol.");
@@ -142,6 +143,7 @@ It is also possible to insert Bayeux Extensions. These extensions can be used to
 }
 
 @end
+```
 
 Both methods return a `BOOL`. If you return `NO`, the message will be thrown away (ie, the message won't be sent to the server, or the received message won't be processed). The extension can be added with a:
 
