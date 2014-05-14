@@ -9,10 +9,10 @@
 #import "BayeuxClient.h"
 
 #if !__has_feature(objc_subscripting)
-#error BayeuxClient must be compiled with Apple's LLVM Compiler v4.0+ (xcode 4.4+) or the open source LLVM compiler v3.1+.
+    #error BayeuxClient must be compiled with Apple's LLVM Compiler v4.0+ (xcode 4.4+) or the open source LLVM compiler v3.1+.
 #endif
 #if !__has_feature(objc_arc)
-#error BayeuxClient must be compiled with ARC enabled.
+    #error BayeuxClient must be compiled with ARC enabled.
 #endif
 
 #ifdef DEBUG
@@ -22,12 +22,21 @@
 #endif
 
 
+typedef enum {
+    ADVICE_RETRY,
+    ADVICE_HANDSHAKE,
+    ADVICE_NONE
+} BayeuxClientAdviceReconnect;
+
+
 @interface BayeuxClient ()
 
 @property SRWebSocket *webSocket;
 @property NSString *clientId;
 @property (readonly) NSMutableDictionary *subscriptions;
 @property (readonly) NSMutableArray *extensions;
+@property (readonly) BayeuxClientAdviceReconnect adviceReconnect;
+@property (readonly) NSTimeInterval adviceInterval;
 
 
 - (void)sendBayeuxHandshake;
@@ -41,6 +50,8 @@
 
 - (void)connectWebSocket;
 - (void)writeMessageToWebSocket:(NSDictionary *)message;
+- (void)setupPingTimer;
+- (void)pingWebSocket;
 - (void)disconnectWebSocket;
 
 @end
@@ -53,6 +64,8 @@
     if (self = [super init]) {
         _subscriptions = [[NSMutableDictionary alloc] init];
         _extensions = [[NSMutableArray alloc] init];
+        _adviceReconnect = ADVICE_RETRY;
+        _adviceInterval = 0.0;
     }
     return self;
 }
@@ -83,14 +96,14 @@
     if (!channel) return;
     
     BOOL needToSubscribe = YES;
-    NSNumber *numberOfSubscriptions = _subscriptions[channel];
+    NSNumber *numberOfSubscriptions = self.subscriptions[channel];
     if (numberOfSubscriptions) {
         needToSubscribe = NO;
         numberOfSubscriptions = @(numberOfSubscriptions.intValue + 1);
     } else {
         numberOfSubscriptions = @1;
     }
-    _subscriptions[channel] = numberOfSubscriptions;
+    self.subscriptions[channel] = numberOfSubscriptions;
     
     if (self.isConnected && needToSubscribe)
         [self sendBayeuxSubscribeToChannel:channel];
@@ -100,11 +113,11 @@
 {
     if (!channel) return;
     
-    NSNumber *numberOfSubscriptions = _subscriptions[channel];
+    NSNumber *numberOfSubscriptions = self.subscriptions[channel];
     if (numberOfSubscriptions) {
         numberOfSubscriptions = @(numberOfSubscriptions.intValue - 1);
         if (numberOfSubscriptions.intValue <= 0 && self.isConnected) {
-            [_subscriptions removeObjectForKey:channel];
+            [self.subscriptions removeObjectForKey:channel];
             [self sendBayeuxUnsubscribeFromChannel:channel];
         }
     }
@@ -131,6 +144,11 @@
 
 - (void)sendBayeuxHandshake
 {
+    if (self.adviceReconnect == ADVICE_NONE) {
+        [self disconnectWebSocket];
+        return;
+    }
+    
     NSDictionary *message = @{@"channel":                  @"/meta/handshake",
                               @"version":                  @"1.0",
                               @"minimumVersion":           @"1.0beta",
@@ -242,11 +260,28 @@
     }
 }
 
+- (void)setupPingTimer
+{
+    [self performSelector:@selector(pingWebSocket) withObject:nil afterDelay:(self.adviceInterval / 2.0)];
+}
+
+- (void)pingWebSocket
+{
+    if (self.isConnected) {
+        // send an empty array to do nothing, but keep the socket open
+        LOG(@"Sending ping...");
+        [self.webSocket send:@"[]"];
+        [self setupPingTimer];
+    }
+}
+
 - (void)disconnectWebSocket
 {
+    _connected = NO;
     self.webSocket.delegate = nil;
     [self.webSocket close];
     self.webSocket = nil;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
 }
 
 
@@ -285,6 +320,33 @@
                 message = mutableMessage;
             }
             
+            NSDictionary *advice = message[@"advice"];
+            if (advice) {
+                NSString *reconnect = advice[@"reconnect"];
+                if (reconnect) {
+                    if ([reconnect isEqualToString:@"retry"])
+                        _adviceReconnect = ADVICE_RETRY;
+                    else if ([reconnect isEqualToString:@"handshake"])
+                        _adviceReconnect = ADVICE_HANDSHAKE;
+                    else
+                        _adviceReconnect = ADVICE_NONE;
+                }
+                
+                if (advice[@"interval"]) {
+                    // interval is in milliseconds - convert to seconds
+                    _adviceInterval = [advice[@"interval"] doubleValue] / 1000.0;
+                    if (self.adviceInterval <= 0.0)
+                        _adviceInterval = 0.0;
+                }
+                
+                if (self.adviceReconnect == ADVICE_HANDSHAKE && self.isConnected) {
+                    _connected = NO;
+                    _clientId = nil;
+                    [NSObject cancelPreviousPerformRequestsWithTarget:self];
+                    [self performSelector:@selector(sendBayeuxHandshake) withObject:nil afterDelay:self.adviceInterval];
+                }
+            }
+            
             NSString *channel = message[@"channel"];
             if ([channel hasPrefix:@"/meta/"]) {
                 
@@ -303,6 +365,7 @@
                         [self sendBayeuxConnect];
                         for (NSString *subscription in self.subscriptions.allKeys)
                             [self sendBayeuxSubscribeToChannel:subscription];
+                        [self setupPingTimer];
                     }
                     
                 } else if ([channel isEqualToString:@"/meta/connect"]) {
@@ -323,7 +386,6 @@
                     LOG(@"Received Bayeux Disconnect Response");
                     if ([message[@"successful"] boolValue]) {
                         [self disconnectWebSocket];
-                        _connected = NO;
                         
                         if ([self.delegate respondsToSelector:@selector(bayeuxClientDidDisconnect:)])
                             [self.delegate bayeuxClientDidDisconnect:self];
@@ -376,13 +438,15 @@
 
 - (void)webSocket:(SRWebSocket *)webSocket didCloseWithCode:(NSInteger)code reason:(NSString *)reason wasClean:(BOOL)wasClean
 {
-    _connected = NO;
+    [self disconnectWebSocket];
     if ([self.delegate respondsToSelector:@selector(bayeuxClient:failedWithError:)]) {
         NSDictionary *errorInfo = @{NSLocalizedDescriptionKey: @"The WebSocket encountered an error.",
                                     NSLocalizedFailureReasonErrorKey: reason};
         NSError *error = [NSError errorWithDomain:@"com.bmatcuk.BayeuxClient.WebSocketError" code:code userInfo:errorInfo];
         [self.delegate bayeuxClient:self failedWithError:error];
     }
+    if (self.adviceReconnect != ADVICE_NONE)
+        [self performSelector:@selector(connectWebSocket) withObject:nil afterDelay:self.adviceInterval];
 }
 
 @end
