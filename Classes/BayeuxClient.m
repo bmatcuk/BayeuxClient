@@ -66,6 +66,7 @@ typedef enum {
         _extensions = [[NSMutableArray alloc] init];
         _adviceReconnect = ADVICE_RETRY;
         _adviceInterval = 0.0;
+        _pingInterval = 30.0;
     }
     return self;
 }
@@ -121,6 +122,23 @@ typedef enum {
             [self sendBayeuxUnsubscribeFromChannel:channel];
         }
     }
+}
+
+- (NSString *)publishMessage:(id)data toChannel:(NSString *)channel
+{
+    if (!self.isConnected) return nil;
+    
+    static int messageIdNumber = 0;
+    NSString *messageId = [NSString stringWithFormat:@"%x", messageIdNumber];
+    NSDictionary *message = @{@"id":       messageId,
+                              @"channel":  channel,
+                              @"clientId": self.clientId,
+                              @"data":     data};
+    LOG(@"Publishing message...");
+    [self writeMessageToWebSocket:message];
+    
+    messageIdNumber++;
+    return messageId;
 }
 
 - (void)addExtension:(NSObject<BayeuxClientExtension> *)extension
@@ -262,7 +280,7 @@ typedef enum {
 
 - (void)setupPingTimer
 {
-    [self performSelector:@selector(pingWebSocket) withObject:nil afterDelay:(self.adviceInterval / 2.0)];
+    [self performSelector:@selector(pingWebSocket) withObject:nil afterDelay:self.pingInterval];
 }
 
 - (void)pingWebSocket
@@ -417,7 +435,18 @@ typedef enum {
                     }
                     
                 }
+            
+            } else if (message[@"id"] && message[@"successful"]) {
                 
+                // server replied after publishing a message
+                LOG(@"Received Publish Response");
+                if ([self.delegate respondsToSelector:@selector(bayeuxClient:publishedMessageId:toChannel:error:)]) {
+                    if ([message[@"successful"] boolValue])
+                        [self.delegate bayeuxClient:self publishedMessageId:message[@"id"] toChannel:channel error:nil];
+                    else
+                        [self.delegate bayeuxClient:self publishedMessageId:message[@"id"] toChannel:channel error:[self buildErrorFromBayeuxMessage:message withDescription:@"Failed to publish message."]];
+                }
+            
             } else {
                 
                 // non-meta message, ie, something the user subscribed to

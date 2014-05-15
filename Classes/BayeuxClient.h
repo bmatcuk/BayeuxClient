@@ -70,6 +70,15 @@
 - (void)bayeuxClient:(BayeuxClient *)client unsubscribedFromChannel:(NSString *)channel;
 
 /**
+ * The client published a message.
+ * @param client The BayeuxClient
+ * @param messageId The unique message ID returned from publishMessage:toChannel:
+ * @param channel The channel that the message was published to.
+ * @param error If nil, the message was published successfully. Otherwise, information about why the message couldn't be published.
+ */
+- (void)bayeuxClient:(BayeuxClient *)client publishedMessageId:(NSString *)messageId toChannel:(NSString *)channel error:(NSError *)error;
+
+/**
  * The client failed to subscribe to a channel.
  * @param client The BayeuxClient
  * @param channel The channel that the client attempted to subscribe to.
@@ -121,6 +130,9 @@
 /// YES if the client is connected to the realtime service
 @property (readonly, getter = isConnected) BOOL connected;
 
+/// How often to ping the server (default: 30 seconds)
+@property NSTimeInterval pingInterval;
+
 
 /**
  * Instantiates the BayeuxClient with the given URL.
@@ -152,6 +164,14 @@
  * @param channel The channel to unsubscribe from.
  */
 - (void)unsubscribeFromChannel:(NSString *)channel;
+
+/**
+ * Publish a message to a channel.
+ * @param data The message to publish - NSJSONSerialization must be able to serialize it
+ * @param channel Channel to publish to.
+ * @return A unique message ID which can be used to identify the success of the message when/if the delegate bayeuxClient:publishedMessageId:toChannel:error: is called. Please keep in mind that the server is not required to reply to publish events.
+ */
+- (NSString *)publishMessage:(id)data toChannel:(NSString *)channel;
 
 /**
  * Add an extension

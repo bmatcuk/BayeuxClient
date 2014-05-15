@@ -78,6 +78,11 @@ Import the `BayeuxClient.h` header file into your project and implement the `Bay
   NSLog(@"The client successfully unsubscribed from a channel.");
 }
 
+- (void)bayeuxClient:(BayeuxClient *)client publishedMessageId:(NSString *)messageId toChannel:(NSString *)channel error:(NSError *)error
+{
+  NSLog(@"The server has responded to a published message.");
+}
+
 - (void)bayeuxClient:(BayeuxClient *)client failedToSubscribeToChannel:(NSString *)channel withError:(NSError *)error
 {
   NSLog(@"The client encountered an error while subscribing to a channel.");
@@ -109,6 +114,16 @@ Import the `BayeuxClient.h` header file into your project and implement the `Bay
 When you are done, you may gracefully disconnect by using the `[self.client disconnect]` method. This method will send a disconnect message to the server, which will then reply and fire the `bayeuxClientDidDisconnect:` method on the delegate.
 
 Or you could do a hard disconnect by releasing the client (ie, `self.client = nil` which will cause ARC to release it). The server will realize you've disconnected after a minute or two. Obviously, a graceful disconnect is preferred.
+
+## Publishing
+
+Once you have a client connected, you may publish messages to different channels using:
+
+```objc
+messageId = [self.client publishMessage:@"This is a test." toChannel:@"/test/channel";
+```
+
+After the message has been published, the server *may* call `bayeuxClient:publishedMessageId:toChannel:error:`. According to the Bayeux protocol documentation, the server is not required to respond. But, if it does, it will call `bayeuxClient:publishedMessageId:toChannel:error:` on your delegate. The `messageId` argument will match the value returned from `publishMessage:toChannel:` and the `error` argument will either be `nil`, meaning the publish was successful, or an `NSError` describing why the message could not be published.
 
 ## Extensions
 
@@ -155,5 +170,5 @@ The client maintains a strong reference to the extension.
 
 ## Known Issues
 
-1. There's no way to publish a message yet - I didn't need it for my project, so I overlooked it.
+1. Message publishing hasn't been tested (I didn't need publishing for my project), but should work.
 2. There's no way to substitute a different transport protocol.
