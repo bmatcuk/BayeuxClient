@@ -120,10 +120,10 @@ Or you could do a hard disconnect by releasing the client (ie, `self.client = ni
 Once you have a client connected, you may publish messages to different channels using:
 
 ```objc
-messageId = [self.client publishMessage:@"This is a test." toChannel:@"/test/channel";
+messageId = [self.client publishMessage:@"This is a test." toChannel:@"/test/channel"];
 ```
 
-After the message has been published, the server *may* call `bayeuxClient:publishedMessageId:toChannel:error:`. According to the Bayeux protocol documentation, the server is not required to respond. But, if it does, it will call `bayeuxClient:publishedMessageId:toChannel:error:` on your delegate. The `messageId` argument will match the value returned from `publishMessage:toChannel:` and the `error` argument will either be `nil`, meaning the publish was successful, or an `NSError` describing why the message could not be published.
+According to the Bayeux protocol documentation, the server is not required to respond. But, if it does, it will call `bayeuxClient:publishedMessageId:toChannel:error:` on your delegate. The `messageId` argument will match the value returned from `publishMessage:toChannel:` and the `error` argument will either be `nil`, meaning the publish was successful, or an `NSError` describing why the message could not be published.
 
 ## Extensions
 
