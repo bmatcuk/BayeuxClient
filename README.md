@@ -13,7 +13,7 @@ BayeuxClient uses [SocketRocket](https://github.com/square/SocketRocket) to hand
 The recommended installation method is via CocoaPods. Add the following to your Podfile:
 
 ```ruby
-pod 'BayeuxClient', '~> 0.1.0'
+pod 'BayeuxClient', '~> 0.1.1'
 ```
 
 and then run `pod install`. This will download and install BayeuxClient and the SocketRocket dependency for your project.

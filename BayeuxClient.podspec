@@ -6,7 +6,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = "BayeuxClient"
-  s.version          = "0.1.0"
+  s.version          = "0.1.1"
   s.summary          = "A client implementation of the Bayeux protocol for OSX and iOS."
   s.description      = <<-DESC
                        Bayeux is an asynchronous protocol for delivering messages between a server and clients. One of the most common server-side implementations is Faye (http://faye.jcoglan.com/).
