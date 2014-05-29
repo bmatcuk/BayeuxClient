@@ -157,6 +157,11 @@ typedef enum {
         [self sendBayeuxDisconnect];
 }
 
+- (void)dealloc
+{
+    self.webSocket.delegate = nil;
+}
+
 
 #pragma mark - Bayeux Protocol
 
@@ -469,8 +474,13 @@ typedef enum {
 {
     [self disconnectWebSocket];
     if ([self.delegate respondsToSelector:@selector(bayeuxClient:failedWithError:)]) {
-        NSDictionary *errorInfo = @{NSLocalizedDescriptionKey: @"The WebSocket encountered an error.",
-                                    NSLocalizedFailureReasonErrorKey: reason};
+        NSDictionary *errorInfo = @{NSLocalizedDescriptionKey: @"The WebSocket encountered an error."};
+        if (reason) {
+            NSMutableDictionary *mutableErrorInfo = [errorInfo mutableCopy];
+            mutableErrorInfo[NSLocalizedFailureReasonErrorKey] = reason;
+            errorInfo = mutableErrorInfo;
+        }
+        
         NSError *error = [NSError errorWithDomain:@"com.bmatcuk.BayeuxClient.WebSocketError" code:code userInfo:errorInfo];
         [self.delegate bayeuxClient:self failedWithError:error];
     }
